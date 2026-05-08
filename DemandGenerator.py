@@ -1,80 +1,156 @@
-# Import required dependencies
 import numpy as np
 
-def random_recursive_signal(n_samples: np.int32, start: np.float64, scale: np.float64=1.0) -> np.ndarray:
-    """ Builds a realistic recursive signal based on random gaussian noise """
-    # Initialize a Numpy array of dimension = n_samples
-    signal = np.zeros(shape=n_samples, dtype=np.float64)
 
-    # Compute random gaussian noise that will be recursively added to the signal
+def random_recursive_signal(n_samples: np.int32, start: np.float64,
+                             scale: np.float64 = 1.0) -> np.ndarray:
+    """
+    Generates a synthetic time series by accumulating Gaussian noise step by step.
+
+    Each sample is computed as the previous value plus a random increment drawn
+    from a normal distribution. This produces a random walk that resembles realistic
+    signals such as power demand curves.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of samples in the output signal.
+    start : float
+        Initial value of the signal (first sample, without any noise applied).
+    scale : float, optional
+        Standard deviation of the Gaussian noise added at each step. Defaults to 1.0.
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (n_samples,) with the generated signal.
+    """
+    signal = np.zeros(shape=n_samples, dtype=np.float64)
     noise = np.random.normal(loc=0.0, scale=scale, size=n_samples - 1)
 
-    # Set the starting point without noise
     signal[0] = start
-
-    # Recursively add the random noise
     for i in range(1, n_samples):
         signal[i] = signal[i - 1] + noise[i - 1]
 
-    # Return the already computed signal
     return signal
 
-def scale_signal(signal: np.ndarray, method: str='MinMax') -> np.ndarray:
-    """ Scales a signal using different normalization techniques """
-    method_lower_case = method.lower()  # Performed to allow for slight changes in the method string
 
-    # Select the normalization method
-    match method_lower_case:
-        # Apply the MinMax normalization
+def scale_signal(signal: np.ndarray, method: str = 'MinMax') -> np.ndarray:
+    """
+    Normalizes a signal using one of the supported scaling methods.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        Input signal to normalize.
+    method : str, optional
+        Normalization method to apply. Supported values are:
+        - 'MinMax': rescales the signal to the range [0, 1].
+        - 'STD': standardizes the signal to zero mean and unit variance.
+        Comparison is case-insensitive. Defaults to 'MinMax'.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized signal with the same shape as the input.
+
+    Raises
+    ------
+    ValueError
+        If the specified method is not recognized.
+    """
+    method_lower = method.lower()
+
+    match method_lower:
         case 'minmax':
             _min, _max = np.min(a=signal), np.max(a=signal)
             return (signal - _min) / (_max - _min)
 
-        # Apply the STD normal distribution standarization
         case 'std':
             mu, sigma = np.mean(a=signal), np.std(a=signal)
             return (signal - mu) / sigma
 
-        # Default case for error management
         case _:
-            raise ValueError(f"Error: '{method}' method is not recognised")
-        
-def moving_average_filter(signal: np.ndarray, window_size: np.int32=7) -> np.ndarray:
-    """ Implementation of the MA-filter for signal smoothing (removing high frequency noise) """
-    # Manage exceptions when the window-size is inconsistent
+            raise ValueError(f"Normalization method '{method}' is not recognized.")
+
+
+def moving_average_filter(signal: np.ndarray, window_size: np.int32 = 7) -> np.ndarray:
+    """
+    Smooths a signal by applying a moving average filter.
+
+    The filter replaces each sample with the mean of the surrounding window,
+    effectively removing high-frequency noise. The signal length is preserved
+    by padding the end with the last known value before convolution.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        Input signal to filter.
+    window_size : int, optional
+        Number of samples to include in each averaging window. Must be greater
+        than zero. Defaults to 7.
+
+    Returns
+    -------
+    np.ndarray
+        Filtered signal with the same shape as the input.
+
+    Raises
+    ------
+    ValueError
+        If window_size is not a positive integer.
+    """
     if window_size <= 0:
-        raise ValueError("Error: window size must be greater than zero!")
-    
-    # Compute the required amount of padding to keep the signal size after the convolutions
-    p_size         = window_size - 1
+        raise ValueError("The window size must be a positive integer.")
 
-    # Add the padding to the signal (repeating the last value rather than adding zeros)
-    signal_padding                   = np.zeros(shape=signal.shape[0] + p_size, dtype=np.float64)
-    signal_padding[:signal.shape[0]] = signal
-    signal_padding[signal.shape[0]:] = signal[-1]
+    p_size = window_size - 1
 
-    # Initialize the output signal array and fill it with the corresponding convolutions (of the MA-filter)
+    # Pad the signal at the end by repeating the last value to preserve output length
+    signal_padded = np.zeros(shape=signal.shape[0] + p_size, dtype=np.float64)
+    signal_padded[:signal.shape[0]] = signal
+    signal_padded[signal.shape[0]:] = signal[-1]
+
     output_signal = np.zeros(shape=signal.shape[0], dtype=np.float64)
     for i in range(signal.shape[0]):
-        output_signal[i] = np.mean(a=signal[ i : i + window_size ])
+        output_signal[i] = np.mean(a=signal[i : i + window_size])
 
-    # Return the filtered signal
     return output_signal
 
-def generate_demand(n_samples: np.int32, start: np.float64=None, scale: np.float64=None, apply_filtering: bool=True) -> np.ndarray:
-    """ Generates a realistic random power-demand signal (time-series) """
-    # Generate a random recursive signal
-    demand_signal = random_recursive_signal(n_samples=n_samples,
-                                            start=start if start is not None else np.random.uniform(low=0.0, high=100.0),
-                                            scale=scale if scale is not None else 1.0)
-    
-    # Normalize the signal by using the MinMax method
+
+def generate_demand(n_samples: np.int32, start: np.float64 = None,
+                    scale: np.float64 = None, apply_filtering: bool = True) -> np.ndarray:
+    """
+    Generates a realistic normalized power demand signal.
+
+    The signal is constructed as a random walk (via Gaussian noise accumulation),
+    then rescaled to [0, 1] using Min-Max normalization. Optionally, a moving
+    average filter is applied to smooth out high-frequency fluctuations, producing
+    a more natural-looking demand curve.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of time steps in the demand signal.
+    start : float, optional
+        Starting power value. If not provided, a random value in [0, 100] is used.
+    scale : float, optional
+        Noise scale for the random walk. If not provided, defaults to 1.0.
+    apply_filtering : bool, optional
+        Whether to apply a moving average filter after normalization. Defaults to True.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized demand signal of shape (n_samples,), with values in [0, 1].
+    """
+    demand_signal = random_recursive_signal(
+        n_samples=n_samples,
+        start=start if start is not None else np.random.uniform(low=0.0, high=100.0),
+        scale=scale if scale is not None else 1.0
+    )
+
     demand_signal_norm = scale_signal(signal=demand_signal, method='MinMax')
 
-    # Check if filtering is required by the programmer
     if apply_filtering:
-        # Filter the signal to remove high frequency noise from it and return the final result
         return moving_average_filter(signal=demand_signal_norm)
-    
-    # If not, simply return the normalized signal
+
     return demand_signal_norm
